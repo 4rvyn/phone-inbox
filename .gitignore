@@ -1,0 +1,7 @@
+# Personal: the shortcut's token and the learned networks (created on first start)
+config.json
+# Logs list received files and networks
+inbox.log*
+# Exists only while a window has the hotspot on
+hotspot-owned.txt
+__pycache__/
