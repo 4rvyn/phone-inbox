@@ -1,8 +1,9 @@
 """Receives photos, videos and other files from the iPhone shortcut "Send to Laptop" while this window is open.
 
-Files are saved as the original files. Photos and videos are named by capture time, so sorting by name gives
-the order they were taken in; other files keep their own name. On networks that wall devices off from each other (campus, office, guest Wi-Fi) the laptop turns
-on its own Wi-Fi hotspot and shows a QR code to join it; closing the window turns it off again.
+Files are saved as the original files, with their name from the phone and the date written inside them
+(when taken, recorded or created). On networks that wall devices off from each other (campus, office, guest
+Wi-Fi) the laptop turns on its own Wi-Fi hotspot and shows a QR code to join it; closing the window turns it
+off again.
 
     python server.py          open the receiving window
     python server.py --info   print the address and token for the iPhone shortcut
@@ -47,8 +48,8 @@ CONTENT_TYPES = {
     "image/heic": ".HEIC", "image/heif": ".HEIC", "image/jpeg": ".JPG", "image/png": ".PNG",
     "image/gif": ".GIF", "image/x-adobe-dng": ".DNG", "video/quicktime": ".MOV", "video/mp4": ".MP4",
 }
-# Photos and videos are named by capture time; other files keep the name they had on the phone.
-MEDIA = set(CONTENT_TYPES.values()) | {".AVIF", ".WEBP"}
+IMAGES = {".HEIC", ".JPG", ".PNG", ".GIF", ".WEBP", ".AVIF"}
+SAME_TYPE = {".JPEG": ".JPG", ".HEIF": ".HEIC"}
 EXIFTOOL = shutil.which("exiftool") or str(Path.home() / "AppData/Local/Programs/ExifTool/exiftool.exe")
 
 log = logging.getLogger("phone-inbox")
@@ -64,11 +65,12 @@ def load_config():
 
 # ---------- files ----------
 
-def capture_date(path):
-    """Reads when a photo or video was taken from the file itself, or None if it has no date."""
+def capture_time(path):
+    """Reads when a file was made (photo taken, memo recorded, PDF created) from the file itself, as a
+    timestamp, or None if it has no date."""
     try:
         result = subprocess.run(
-            [EXIFTOOL, "-api", "QuickTimeUTC", "-d", DATE_FORMAT, "-s3",
+            [EXIFTOOL, "-api", "QuickTimeUTC", "-d", "%Y-%m-%dT%H:%M:%S%z", "-s3",
              "-DateTimeOriginal", "-CreationDate", "-CreateDate", "-DateCreated", str(path)],
             capture_output=True, text=True, timeout=60, creationflags=NO_WINDOW,
         )
@@ -76,10 +78,37 @@ def capture_date(path):
         log.warning("could not read date: %s", e)
         return None
     for line in result.stdout.splitlines():
-        # Tags are listed in order of preference.
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", line.strip()):
-            return line.strip()
+        # Tags are listed in order of preference; empty ones read 0000:00:00 and are skipped.
+        try:
+            return datetime.strptime(line.strip(), "%Y-%m-%dT%H:%M:%S%z").timestamp()
+        except ValueError:
+            continue
     return None
+
+
+def phone_time(text):
+    """The date the shortcut sent along (ISO 8601, or the old 2026-10-13_18-20-00 form), or None."""
+    for parse in (datetime.fromisoformat, lambda t: datetime.strptime(t, DATE_FORMAT)):
+        try:
+            return parse(text.strip()).timestamp()
+        except ValueError:
+            pass
+    return None
+
+
+def set_file_times(path, stamp):
+    """Sets the file's modified and created time. Windows shows "Date created" too, which os.utime can't set."""
+    os.utime(path, (stamp, stamp))
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    kernel32.SetFileTime.argtypes = [ctypes.c_void_p] + [ctypes.c_void_p] * 3
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel32.CreateFileW(str(path), 0x100, 0, None, 3, 0x80, None)  # write attributes, open existing
+    if handle in (None, ctypes.c_void_p(-1).value):
+        return
+    filetime = ctypes.c_ulonglong(int((stamp + 11644473600) * 10_000_000))  # 100 ns steps since 1601
+    kernel32.SetFileTime(handle, ctypes.byref(filetime), None, None)
+    kernel32.CloseHandle(handle)
 
 
 def sniff_extension(head):
@@ -236,25 +265,23 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.server.session.record_arrival(self.client_address[0])
 
+        # The file keeps its name from the phone and the date written inside it. Only what is missing is
+        # filled in: the date from the phone, then the arrival time; without a name, the date is the name.
         name = Path(clean_name(query["name"])) if query.get("name") else Path("")
+        with open(part, "rb") as f:
+            head = f.read(16)
+        sniffed = sniff_extension(head)
         suffix = name.suffix
         if not suffix:
-            with open(part, "rb") as f:
-                head = f.read(16)
             content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
-            suffix = (sniff_extension(head) or CONTENT_TYPES.get(content_type)
+            suffix = (sniffed or CONTENT_TYPES.get(content_type)
                       or (mimetypes.guess_extension(content_type) or "").upper())
             if not suffix:
                 log.info("unknown file type: Content-Type %r, first bytes %s", content_type, head.hex(" "))
-        if suffix.upper() in MEDIA or not name.stem:
-            suffix = suffix.upper()
-            date = query.get("date", "")
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", date):
-                date = capture_date(part) or datetime.now().strftime(DATE_FORMAT)
-            stem = date
-        else:
-            date = datetime.now().strftime(DATE_FORMAT)
-            stem = name.stem
+        elif suffix.upper() in IMAGES and sniffed in IMAGES and SAME_TYPE.get(suffix.upper(), suffix.upper()) != sniffed:
+            suffix = sniffed  # e.g. a PNG the phone calls .jpg
+        stamp = capture_time(part) or phone_time(query.get("date", "")) or time.time()
+        stem = name.stem or datetime.fromtimestamp(stamp).strftime(DATE_FORMAT)
         target = folder / f"{stem}{suffix}"
         n = 2
         while target.exists():
@@ -266,8 +293,7 @@ class Handler(BaseHTTPRequestHandler):
             target = folder / f"{stem}-{n}{suffix}"
             n += 1
         part.replace(target)
-        stamp = time.mktime(datetime.strptime(date, DATE_FORMAT).timetuple())
-        os.utime(target, (stamp, stamp))
+        set_file_times(target, stamp)
 
         self.server.notifier.file_saved()
         log.info("saved %s (%.1f MB)", target.name, size / 1e6)
@@ -614,7 +640,7 @@ def main():
         print("  " + "-" * 40)
         describe_situation(session)
         if not Path(EXIFTOOL).exists():
-            print("\n  ! ExifTool is missing, so files get the arrival time instead of the capture time.")
+            print("\n  ! ExifTool is missing, so files get the arrival time instead of their real date.")
             print("    Run setup.ps1 to install it.")
         print(f"\n  Files go to {config['folder']}")
         print("  Close this window (or press Q) when you're done.\n")
