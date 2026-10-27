@@ -31,13 +31,8 @@ It installs [segno](https://github.com/heuer/segno) and [ExifTool](https://exift
 **On the iPhone**, turn on *Settings > Apps > Shortcuts > Advanced > Allow Sharing Large Amounts of Data*, then build a shortcut called **Send to Laptop**. Turn on *Show in Share Sheet* in its details (the ⓘ button) first; that adds the top line.
 
 ```
-Receive Any input from Share Sheet        If there's no input: Continue
-Set Variable Items to Shortcut Input
-If Shortcut Input does not have any value
-    Select Photos                         Select Multiple: on
-    Set Variable Items to Photos
-End If
-Repeat with each item in Items
+Receive Any input from Share Sheet        If there's no input: Ask For Photos
+Repeat with each item in Shortcut Input
     Get Contents of URL                   your URL · POST
                                           Headers: X-Name = Repeat Item › Name
                                                    X-Ext  = Repeat Item › File Extension
@@ -46,14 +41,16 @@ End Repeat
 Show Notification                         Sent to laptop
 ```
 
-Shared items go straight to the loop; tapping the shortcut itself opens the photo picker. To pick a property such as *Name*, tap the *Repeat Item* variable after inserting it.
+To pick a property such as *Name*, tap the *Repeat Item* variable after inserting it.
 
 ## Use
 
 1. Double-click `Phone_Inbox.cmd`.
 2. On the iPhone, either:
-   - tap **Send to Laptop** and pick photos and videos (to pick many, tap one and slide across the rest), or
-   - in any app (Files, Mail, Voice Memos, Photos), tap Share and choose **Send to Laptop**.
+   - in any app (Photos, Files, Mail, Voice Memos), select what you want, tap Share and choose **Send to Laptop**, or
+   - tap the **Send to Laptop** icon itself to pick a single photo or video.
+
+   For many photos, select them in Photos (tap *Select*, then slide across them) and share them all at once.
 3. Close the window when you're done.
 
 You can lock the phone while it sends.
