@@ -1,34 +1,27 @@
 # Phone Inbox
 
-Send photos, videos and other files from your iPhone to your Windows PC over Wi-Fi, like AirDrop for Windows.
-Original files, full quality, with their own names and dates. No cable, no cloud, no app to install.
+Send photos, videos and any other file from your iPhone to your Windows PC over Wi-Fi, like AirDrop for Windows. No cable, no cloud, no app to install.
 
 ```
-  + IMG_4821.HEIC         1.1 MB
-  + IMG_4822.MOV         47.9 MB
-  + Lecture notes.pdf     2.9 MB
-  + New Recording.m4a   9.3 MB
+  + IMG_4821.HEIC          1.1 MB
+  + IMG_4822.MOV          47.9 MB
+  + Lecture notes.pdf      2.9 MB
+  + New Recording.m4a      9.3 MB
 ```
 
-- **Originals.** No recompression. Location and camera data stay intact.
-- **Real dates.** Each file's date on the PC is when it was taken, recorded or created, read from inside the file, not when it was sent.
-- **Any file.** Photos, videos, PDFs, voice memos, documents: tap Share in any app and pick **Send to Laptop**.
-- **Works on locked-down networks.** Campus, office, hotel and guest Wi-Fi often stop devices from seeing each other. There the PC opens its own Wi-Fi and shows a QR code to join it.
-- **Nothing left running.** Close the window and everything is switched off again.
+Files arrive as the originals, uncompressed, with their own names. Each file's date on the PC is when it was taken, recorded or created, not when it was sent. On campus, office and guest Wi-Fi, where devices often can't see each other, the PC opens its own Wi-Fi and shows a QR code to join it. Closing the window switches everything off again.
 
 Needs Windows 11 (10 should work), [Python 3.8+](https://www.python.org/downloads/) and an iPhone with the Shortcuts app.
 
 ## Setup
 
-**On the PC**, run this in the project folder:
+On the PC, run this in the project folder. It installs [segno](https://github.com/heuer/segno) and [ExifTool](https://exiftool.org), opens port 8765 for the local network and prints the URL for the shortcut. The `token` in the URL is the shortcut's password; `py -3 server.py --info` prints it again.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
-It installs [segno](https://github.com/heuer/segno) and [ExifTool](https://exiftool.org), opens port 8765 for your local network, and prints the URL for the shortcut. The `token` in it is the shortcut's password; `py -3 server.py --info` prints it again.
-
-**On the iPhone**, turn on *Settings > Apps > Shortcuts > Advanced > Allow Sharing Large Amounts of Data*, then build a shortcut called **Send to Laptop**. Turn on *Show in Share Sheet* in its details (the ⓘ button) first; that adds the top line.
+On the iPhone, turn on *Settings > Apps > Shortcuts > Advanced > Allow Sharing Large Amounts of Data*. Then build a shortcut called **Send to Laptop** and turn on *Show in Share Sheet* in its details (the ⓘ button), which adds the first line below. To pick a property such as *Name*, tap the *Repeat Item* variable after inserting it.
 
 ```
 Receive Any input from Share Sheet        If there's no input: Ask For Photos
@@ -41,26 +34,11 @@ End Repeat
 Show Notification                         Sent to laptop
 ```
 
-To pick a property such as *Name*, tap the *Repeat Item* variable after inserting it.
-
 ## Use
 
-1. Double-click `Phone_Inbox.cmd`.
-2. On the iPhone, either:
-   - in any app (Photos, Files, Mail, Voice Memos), select what you want, tap Share and choose **Send to Laptop**, or
-   - tap the **Send to Laptop** icon itself to pick a single photo or video.
+Double-click `Phone_Inbox.cmd`. On the iPhone, select what you want in any app (Photos, Files, Mail, Voice Memos), tap Share and choose **Send to Laptop**. Tapping the shortcut's own icon picks a single photo. You can lock the phone while it sends. Close the window when you're done.
 
-   For many photos, select them in Photos (tap *Select*, then slide across them) and share them all at once.
-3. Close the window when you're done.
-
-You can lock the phone while it sends.
-
-| Network | What happens |
-|---|---|
-| Home Wi-Fi | The phone sends directly. |
-| Campus, office, hotel or guest Wi-Fi | The PC turns on its own Wi-Fi and shows a QR code. Scan it, send, switch back. |
-
-On such a network the window looks like this:
+On home Wi-Fi the phone sends directly. On networks that keep devices apart, the window looks like this; scan the code, send, then switch the phone back to the usual Wi-Fi.
 
 ```
   Laptop is on  Office-WiFi
@@ -70,8 +48,6 @@ On such a network the window looks like this:
   █████████████████████████████████████
   ██ ▄▄▄▄▄ █▄▄▄█▀▄██ ▀█▄█ █▄██ ▄▄▄▄▄ ██
   ██ █   █ █▄▀█▄▀▄██▄ █▄▀ ▀▀ █ █   █ ██
-  ██ █▄▄▄█ █▀▀▄▀ ▄▀ █ ▀█▄▄▀█▀█ █▄▄▄█ ██
-  ██▄▄▄▄▄▄▄█▄▀▄█ █▄▀ █ █ █▄█▄█▄▄▄▄▄▄▄██
   ...
 
   On the iPhone: open the Camera, point it at this code, tap "Join".
@@ -80,16 +56,13 @@ On such a network the window looks like this:
 The window remembers what worked on each network. Press **H** to use the PC's own Wi-Fi anyway.
 
 > [!WARNING]
-> Some universities and offices forbid personal hotspots. Check the network's rules first.
-> The hotspot only runs while the window is open.
+> Some universities and offices forbid personal hotspots. Check the network's rules first. The hotspot only runs while the window is open.
 
 ## Troubleshooting
 
-- **The shortcut can't connect.** Is the window open, and is the phone on the same Wi-Fi? If so, press **H**. Also check that Shortcuts is allowed in *Settings > Privacy & Security > Local Network*.
-- **"Another program is using port 8765".** The window names the program. Close it and open `Phone_Inbox.cmd` again.
-- **Files get the time they were sent as their date.** Either ExifTool is missing (run `setup.ps1` again), or the file has no date inside, as with many images saved from the web or messengers.
-- **A file arrives named by date instead of its own name.** The shortcut is missing the `X-Name` and `X-Ext` headers.
-- **A Live Photo has no motion.** Shortcuts only passes the still image.
+If the shortcut can't connect, check that the window is open and the phone is on the same Wi-Fi, then press **H**. Shortcuts also needs *Settings > Privacy & Security > Local Network*. If the window says another program is using port 8765, it names that program; close it and start again.
+
+A file dated by when it was sent either has no date inside (common for images saved from the web or messengers), or ExifTool is missing; run `setup.ps1` again. A file named by date instead of its own name means the shortcut lacks the `X-Name` and `X-Ext` headers. Live Photos arrive as stills, because Shortcuts only passes the image.
 
 Every start, file and cleanup step is logged in `inbox.log`.
 
@@ -98,20 +71,13 @@ Every start, file and cleanup step is logged in `inbox.log`.
 
 <br>
 
-The iPhone uploads each file over plain HTTP to a small receiver on the PC. A random token in the URL keeps other devices out, and the receiver only listens while its window is open. Each file keeps the name the shortcut sends along. The PC reads its date from inside the file with ExifTool and sets the file's created and modified time to it; only when the file has no date does it use the time it arrived. A file with the same name and size is skipped, one with the same name and a different size gets a `-2`.
+The iPhone uploads each file over plain HTTP to a small receiver on the PC. The token keeps other devices out, and the receiver only listens while its window is open. The PC reads each file's date with ExifTool and sets the file's created and modified time to it. A file already there with the same name and size is skipped; a different file with the same name gets `-2`.
 
-Whether the phone can reach the PC depends on the network. A single device can't test that reliably, so the window uses the login type: shared-password Wi-Fi works directly, while personal-login (campus, office), open and wired networks get the hotspot. After each send it remembers what actually worked.
+Whether the phone can reach the PC depends on the network, and a single device can't test that reliably. So the window goes by the login type: shared-password Wi-Fi works directly, while personal-login, open and wired networks get the hotspot. After each send it remembers what actually worked.
 
 However the window ends (closed, crashed or killed), `guard.ps1` turns the hotspot off and deletes half-received files. A power loss is cleaned up on the next start.
 
-</details>
-
-<details>
-<summary><b>iOS versions</b></summary>
-
-<br>
-
-The PC side doesn't depend on iOS at all. The shortcut uses only basic actions that have been in Shortcuts for years. It was built on iOS 18.7, and Apple's iOS 26 documentation describes these actions unchanged. On iOS 17 and earlier, the setting lives under *Settings > Shortcuts > Advanced*.
+The shortcut only uses basic actions that have been in Shortcuts for years. It was built on iOS 18.7; on iOS 17 and earlier the setting above lives under *Settings > Shortcuts > Advanced*.
 
 </details>
 
@@ -120,13 +86,7 @@ The PC side doesn't depend on iOS at all. The shortcut uses only basic actions t
 
 <br>
 
-| File | |
-|---|---|
-| `Phone_Inbox.cmd` | Starts the window |
-| `server.py` | Receiver and window |
-| `hotspot.ps1` · `guard.ps1` | Hotspot control and cleanup |
-| `setup.ps1` | One-time setup |
-| `config.json` | Token, target folder, learned networks. Local only. |
+`Phone_Inbox.cmd` starts the window, `server.py` is the receiver, `hotspot.ps1` and `guard.ps1` control and clean up the hotspot, and `setup.ps1` is the one-time setup. `config.json` holds the token, target folder and learned networks and stays local.
 
 To uninstall, run `Remove-NetFirewallRule -DisplayName 'Phone inbox'` as administrator, then delete the folder.
 
