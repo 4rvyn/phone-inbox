@@ -1,5 +1,5 @@
 @echo off
-rem Double-click to receive photos from the iPhone. Close the window when done.
+rem Double-click to receive photos and files from the iPhone. Close the window when done.
 rem Python is started directly (not through the py launcher) so closing the window reaches it straight away.
 for /f "delims=" %%p in ('py -3 -c "import sys; print(sys.executable)"') do set "PYEXE=%%p"
 if not defined PYEXE (

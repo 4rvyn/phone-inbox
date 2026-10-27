@@ -1,7 +1,7 @@
-"""Receives photos and videos from the iPhone shortcut "Send to Laptop" while this window is open.
+"""Receives photos, videos and other files from the iPhone shortcut "Send to Laptop" while this window is open.
 
-Files are saved as the original files, named by capture time, so sorting by name gives the order they
-were taken in. On networks that wall devices off from each other (campus, office, guest Wi-Fi) the laptop turns
+Files are saved as the original files. Photos and videos are named by capture time, so sorting by name gives
+the order they were taken in; other files keep their own name. On networks that wall devices off from each other (campus, office, guest Wi-Fi) the laptop turns
 on its own Wi-Fi hotspot and shows a QR code to join it; closing the window turns it off again.
 
     python server.py          open the receiving window
@@ -26,7 +26,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 try:
     import segno
@@ -47,6 +47,8 @@ CONTENT_TYPES = {
     "image/heic": ".HEIC", "image/heif": ".HEIC", "image/jpeg": ".JPG", "image/png": ".PNG",
     "image/gif": ".GIF", "image/x-adobe-dng": ".DNG", "video/quicktime": ".MOV", "video/mp4": ".MP4",
 }
+# Photos and videos are named by capture time; other files keep the name they had on the phone.
+MEDIA = set(CONTENT_TYPES.values()) | {".AVIF", ".WEBP"}
 EXIFTOOL = shutil.which("exiftool") or str(Path.home() / "AppData/Local/Programs/ExifTool/exiftool.exe")
 
 log = logging.getLogger("phone-inbox")
@@ -81,7 +83,7 @@ def capture_date(path):
 
 
 def sniff_extension(head):
-    """Guesses a file extension from its first bytes, since the phone sends no file name."""
+    """Guesses a file extension from its first bytes, for when the phone sends no file name."""
     if head[4:8] == b"ftyp":
         brand = head[8:12]
         if brand in (b"heic", b"heix", b"heim", b"heis", b"mif1", b"msf1", b"hevc"):
@@ -105,8 +107,10 @@ def sniff_extension(head):
 
 
 def clean_name(name):
-    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
-    return name[:80] or "file"
+    """Makes a file name from the phone safe for Windows, keeping its extension."""
+    name = Path(re.sub(r'[\x00-\x1f<>:"/\\|?*]+', "_", name).strip(" ."))
+    stem = name.stem[:80].strip(" .")
+    return stem + name.suffix if stem else "file"
 
 
 class Notifier:
@@ -199,9 +203,18 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, "not found")
             return
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
-        for key in ("name", "date"):
-            if self.headers.get(f"X-{key}"):
-                query[key] = self.headers[f"X-{key}"].strip()
+        for key in ("name", "ext", "date"):
+            value = self.headers.get(f"X-{key}")
+            if value:
+                try:  # Python reads headers as Latin-1, the phone sends UTF-8 (umlauts in file names)
+                    value = value.encode("latin-1").decode("utf-8")
+                except UnicodeError:
+                    pass
+                query[key] = unquote(value).strip()
+        # Shortcuts' "Name" may or may not include the extension, so the shortcut sends both.
+        ext = query.get("ext", "").strip(".")
+        if query.get("name") and ext and not query["name"].lower().endswith("." + ext.lower()):
+            query["name"] += "." + ext
         folder = Path(self.server.config["folder"])
         folder.mkdir(parents=True, exist_ok=True)
         part = folder / f".incoming-{os.getpid()}-{secrets.token_hex(6)}.part"
@@ -223,10 +236,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.server.session.record_arrival(self.client_address[0])
 
-        date = query.get("date", "")
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", date):
-            date = capture_date(part) or datetime.now().strftime(DATE_FORMAT)
-        # Without a name from the phone the file is called just by its capture time.
         name = Path(clean_name(query["name"])) if query.get("name") else Path("")
         suffix = name.suffix
         if not suffix:
@@ -237,7 +246,15 @@ class Handler(BaseHTTPRequestHandler):
                       or (mimetypes.guess_extension(content_type) or "").upper())
             if not suffix:
                 log.info("unknown file type: Content-Type %r, first bytes %s", content_type, head.hex(" "))
-        stem = f"{date}_{name.stem}" if name.stem else date
+        if suffix.upper() in MEDIA or not name.stem:
+            suffix = suffix.upper()
+            date = query.get("date", "")
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", date):
+                date = capture_date(part) or datetime.now().strftime(DATE_FORMAT)
+            stem = date
+        else:
+            date = datetime.now().strftime(DATE_FORMAT)
+            stem = name.stem
         target = folder / f"{stem}{suffix}"
         n = 2
         while target.exists():
@@ -313,6 +330,21 @@ def current_network():
         return None
     name, ip, prefix, router, login = out.split("|")
     return name, ip, int(prefix), router, login
+
+
+def port_owner():
+    """Command line of the program listening on PORT, or None if it can't be found."""
+    script = (
+        f"$c = Get-NetTCPConnection -LocalPort {PORT} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1;"
+        "if ($c) { $p = Get-CimInstance Win32_Process -Filter \"ProcessId=$($c.OwningProcess)\";"
+        " if ($p.CommandLine) { $p.CommandLine } else { $p.Name } }"
+    )
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                             capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return " ".join(out.split()) or None
 
 
 def arp(ip, source):
@@ -540,14 +572,20 @@ def main():
 
     handler = RotatingFileHandler(HOME / "inbox.log", maxBytes=1_000_000, backupCount=1, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, handlers=[handler], format="%(asctime)s %(message)s")
-    ctypes.windll.kernel32.SetConsoleTitleW("Receive photos from iPhone")
+    ctypes.windll.kernel32.SetConsoleTitleW("Phone Inbox")
     sys.stdout.reconfigure(encoding="utf-8")  # block characters of the QR code
     os.system("")  # lets the classic Windows console understand the QR code's colour codes
 
     try:
         server = ExclusiveServer(("0.0.0.0", PORT), Handler)
     except OSError:
-        print("  This is already open in another window. Use that one.")
+        owner = port_owner()
+        if owner and str(HOME / "server.py").lower() in owner.lower().replace("/", "\\"):
+            print("  This is already open in another window. Use that one.")
+        else:
+            print(f"  Another program is using port {PORT}, which this needs:")
+            print(f"    {owner or 'unknown program'}")
+            print("  Close that program, then open this again.")
         input("\n  Press Enter to close.")
         return
     # Only one window can get this far (the port is taken), so leftovers belong to an earlier run.
@@ -572,7 +610,7 @@ def main():
     ctypes.windll.kernel32.SetConsoleCtrlHandler(on_console_event, True)
 
     try:
-        print("\n  Receive photos from iPhone")
+        print("\n  Phone Inbox: receive photos and files from iPhone")
         print("  " + "-" * 40)
         describe_situation(session)
         if not Path(EXIFTOOL).exists():

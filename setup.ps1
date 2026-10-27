@@ -30,7 +30,7 @@ if (Get-NetFirewallRule -DisplayName 'Phone inbox' -ErrorAction SilentlyContinue
     '  already there'
 } else {
     '  Windows will ask for administrator permission once.'
-    $rule = "New-NetFirewallRule -DisplayName 'Phone inbox' -Description 'phone-inbox: receive photos from the iPhone' " +
+    $rule = "New-NetFirewallRule -DisplayName 'Phone inbox' -Description 'phone-inbox: receive photos and files from the iPhone' " +
             "-Direction Inbound -Action Allow -Protocol TCP -LocalPort 8765 -RemoteAddress LocalSubnet -Profile Private,Public"
     Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile', '-Command', $rule
     if (-not (Get-NetFirewallRule -DisplayName 'Phone inbox' -ErrorAction SilentlyContinue)) {
